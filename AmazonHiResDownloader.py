@@ -11,6 +11,7 @@ import os
 import logging
 import inspect
 from selenium import webdriver
+import json
 
 
 
@@ -67,15 +68,34 @@ def main():
 	logger.debug("Extracted javascript: \n{}".format(javascript))
 
 	try:
-		shirt_data = re.search('(data\[\"colorImages\"\]\s=\s)(.*?)(;\n)', str(javascript)).group(2)
-		logger.debug("Parsed shirt data:\n{}".format(shirt_data))
-	except:
+		# The regular expression searchs for "data[colorImages] = { .... };" and extracts the dictionary
+		# portion { .... }.
+		match = re.search('(data\[\"colorImages\"\]\s=\s{)(.*?)(;\n)', str(javascript))
+		if match is not None:
+			data = match.group(2)
+			shirts = json.loads(data.encode('unicode_escape').decode())
+		else:
+			if isinstance(javascript, list):
+				for script in javascript:
+					match = re.search('''var\sobj\s=\sjQuery.parseJSON\(\'(.*?)\'\)''', str(script))
+					if match is not None:
+						data = match.group(1)
+						data = json.loads(data.encode('unicode_escape').decode())
+						shirts = data['colorImages']
+						break
+			else:
+				match = re.search('''var\sobj\s=\sjQuery.parseJSON\(\'(.*?)\'\)''', str(javascript))
+				if match is not None:
+					data = data.group(1)
+					data = json.loads(data.encode('unicode_escape').decode())
+					shirts = data['colorImages']
+		logger.debug("Parsed shirt data:\n{}".format(shirts))
+	except Exception as e:
 		if printable_soup.find("not a robot") != -1:
 			raise SystemExit("Amazon rejected HTML request because of bot detection.")
 
-		raise SystemExit("Could not find the images.")
-
-	shirts = ast.literal_eval(shirt_data)
+		logger.info(e)
+		raise
 
 	try:
 		shirt_folder = home + "/Downloads/Amazon HiRes Shirts/"
@@ -84,8 +104,18 @@ def main():
 		logger.debug("""The directory "~/Downloads/Amazon HiRes Shirts" already exists.""")
 
 	for shirt in shirts:
+		# Shirts dictionary follows this format:
+		'''
+		{"Women Heather Grey":
+			[
+				{"large":"...",
+				"variant":"...",
+				"hiRes":"hiRes url",
+				"thumb":"...",
+				}, ...
+			]
+		'''
 		url = shirts[str(shirt)][0]['hiRes']
-		# urlretrieve(url, shirt + ".png")
 		r = requests.get(url)
 		if r.status_code == 200:
 			with open(shirt_folder + shirt + ".png", 'wb') as f:
@@ -103,4 +133,3 @@ if __name__ == '__main__':
 
 # y = re.search('(https.*?)(\":)', str(x)).group(1)
 # webbrowser.open(y)
-
